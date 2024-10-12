@@ -117,3 +117,46 @@ def recomendar_musica(gustos, contexto_completo):
     except Exception as e:
         print(f"Error en recomendar_musica: {e}")
         return {"command": "recomendacion", "error": f"Error al generar recomendación: {str(e)}"}
+
+def inspeccionar_playlists_y_recomendar():
+    try:
+        # Obtener las playlists del usuario
+        playlists = sp.current_user_playlists()
+        todas_las_canciones = []
+
+        # Recopilar canciones de las primeras 5 playlists (o menos si el usuario tiene menos)
+        for playlist in playlists['items'][:5]:
+            results = sp.playlist_tracks(playlist['id'])
+            canciones_playlist = [item['track'] for item in results['items'] if item['track']]
+            todas_las_canciones.extend(canciones_playlist[:10])  # Tomar las primeras 10 canciones de cada playlist
+
+        if not todas_las_canciones:
+            return {"command": "inspector", "error": "No se encontraron canciones en tus playlists"}
+
+        # Seleccionar una canción aleatoria de las recopiladas
+        cancion_recomendada = random.choice(todas_las_canciones)
+
+        # Generar un resumen de las playlists inspeccionadas
+        resumen_playlists = ", ".join([playlist['name'] for playlist in playlists['items'][:5]])
+
+        # Intentar reproducir la canción recomendada
+        resultado_reproduccion = reproducir_cancion(
+            cancion_recomendada['name'],
+            cancion_recomendada['artists'][0]['name'],
+            cancion_recomendada['uri']
+        )
+
+        return {
+            "command": "inspector",
+            "playlists_inspeccionadas": resumen_playlists,
+            "cancion_recomendada": {
+                "nombre": cancion_recomendada['name'],
+                "artista": cancion_recomendada['artists'][0]['name'],
+                "album": cancion_recomendada['album']['name'],
+                "uri": cancion_recomendada['uri']
+            },
+            "reproduccion": json.loads(resultado_reproduccion)
+        }
+    except Exception as e:
+        print(f"Error en inspeccionar_playlists_y_recomendar: {e}")
+        return {"command": "inspector", "error": f"Error al inspeccionar playlists: {str(e)}"}

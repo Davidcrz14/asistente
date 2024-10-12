@@ -1,7 +1,7 @@
 import json
 import google.generativeai as genai
 import speech_recognition as sr
-from commands.spotify_commands import cancion_actual, reproducir_cancion, recomendar_musica
+from commands.spotify_commands import cancion_actual, reproducir_cancion, recomendar_musica, inspeccionar_playlists_y_recomendar
 import typing_extensions as typing
 
 
@@ -47,6 +47,7 @@ def procesar_comando_con_ia(texto):
         1. Obtener la canción actual
         2. Reproducir una canción específica (ejemplo: "reproduce la canción tormento de Mon Laferte")
         3. Recomendar música basada en gustos
+        4. Inspeccionar playlists y recomendar (ejemplo: "mira mis canciones y dame algo bueno")
 
         Comando: "{texto}"
 
@@ -61,6 +62,10 @@ def procesar_comando_con_ia(texto):
         Para recomendar música, usa: {{"command": "recomendacion", "gustos": "ARTISTA_GENERO_O_CONTEXTO"}}
         Ejemplo: recomienda musica rock
         Salida: {{"command": "recomendacion", "gustos": "rock"}}
+        ----------------------------------------------------------------------------------------------
+        Para inspeccionar playlists y recomendar, usa: {{"command": "inspector"}}
+        Ejemplo: mira mis canciones y dame algo bueno
+        Salida: {{"command": "inspector"}}
         ----------------------------------------------------------------------------------------------
         Si no se reconoce el comando, usa: {{"command": "desconocido"}}
         """
@@ -95,8 +100,8 @@ def procesar_comando_con_ia(texto):
     except Exception as e:
         print(f"Error al procesar con IA: {e}")
         # Lógica de respaldo simple
-        if "recomienda" in texto.lower() or "recomiéndame" in texto.lower():
-            return {"command": "recomendacion", "gustos": texto.split("gusta")[-1].strip()}
+        if "mira mis canciones" in texto.lower() or "dame algo bueno" in texto.lower():
+            return {"command": "inspector"}
         elif "reproduce" in texto.lower():
             partes = texto.lower().split("reproduce")[-1].split("de")
             if len(partes) >= 2:
@@ -116,11 +121,10 @@ def ejecutar_comando(comando, contexto_completo):
         return reproducir_cancion(comando.get("nombre_cancion", ""), comando.get("nombre_artista", ""))
     elif comando["command"] == "recomendacion":
         recomendacion = recomendar_musica(comando.get("gustos", ""), contexto_completo)
-        if "cancion_recomendada" in recomendacion:
-            cancion = recomendacion["cancion_recomendada"]
-            resultado_reproduccion = reproducir_cancion(cancion["nombre"], cancion["artista"])
-            recomendacion["reproduccion"] = json.loads(resultado_reproduccion)
         return json.dumps(recomendacion)
+    elif comando["command"] == "inspector":
+        resultado = inspeccionar_playlists_y_recomendar()
+        return json.dumps(resultado)
     else:
         return json.dumps({"error": "Comando no reconocido"})
 
