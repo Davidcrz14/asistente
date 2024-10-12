@@ -5,7 +5,7 @@ from commands.spotify_commands import cancion_actual, reproducir_cancion, recome
 import typing_extensions as typing
 
 
-genai.configure(api_key='AIzaSyD3D35igAJd-q-Eoi_ZFHKnJ8DCeYXdzmw')
+genai.configure(api_key='AIzaSyCR0ckMdpUigrMu_AZVaANoHOXGC6JCYdE')
 
 
 generation_config = {
@@ -40,41 +40,37 @@ def escuchar_comando():
 
 
 def procesar_comando_con_ia(texto):
-
-    prompt = f"""
-    Analiza el siguiente comando de voz y determina qué acción se debe realizar.
-    Las posibles acciones son:
-    1. Obtener la canción actual
-    2. Reproducir una canción específica (ejemplo: "reproduce la canción tormento de Mon Laferte")
-    3. Recomendar música basada en gustos
-
-    Comando: "{texto}"
-
-    Responde SOLO con un JSON que incluya el comando y los detalles necesarios.
-
-    Para obtener la canción actual, usa: {{"command": "actualcancion"}}
-
-    Para reproducir una canción, usa: {{"command": "cancion", "nombre_cancion": "NOMBRE_CANCION", "nombre_artista": "NOMBRE_ARTISTA"}}
-    Ejemplo: reproduce la cancion de tormento de Mon Laferte
-    Salida: {{"command": "cancion", "nombre_cancion": "tormento", "nombre_artista": "Mon Laferte"}}
-    ----------------------------------------------------------------------------------------------
-    Para recomendar música, usa: {{"command": "recomendacion", "gustos": "ARTISTA_O_GENERO"}}
-    Ejemplo: recomienda musica rock
-    Salida: {{"command": "recomendacion", "gustos": "rock"}}
-    ----------------------------------------------------------------------------------------------
-    Si no se reconoce el comando, usa: {{"command": "desconocido"}}
-    """
-
-
-    response = model.generate_content(
-        prompt,
-        generation_config=genai.GenerationConfig(
-            response_mime_type="application/json",
-
-        )
-    )
-
     try:
+        prompt = f"""
+        Analiza el siguiente comando de voz y determina qué acción se debe realizar.
+        Las posibles acciones son:
+        1. Obtener la canción actual
+        2. Reproducir una canción específica (ejemplo: "reproduce la canción tormento de Mon Laferte")
+        3. Recomendar música basada en gustos
+
+        Comando: "{texto}"
+
+        Responde SOLO con un JSON que incluya el comando y los detalles necesarios.
+
+        Para obtener la canción actual, usa: {{"command": "actualcancion"}}
+
+        Para reproducir una canción, usa: {{"command": "cancion", "nombre_cancion": "NOMBRE_CANCION", "nombre_artista": "NOMBRE_ARTISTA"}}
+        Ejemplo: reproduce la cancion de tormento de Mon Laferte
+        Salida: {{"command": "cancion", "nombre_cancion": "tormento", "nombre_artista": "Mon Laferte"}}
+        ----------------------------------------------------------------------------------------------
+        Para recomendar música, usa: {{"command": "recomendacion", "gustos": "ARTISTA_GENERO_O_CONTEXTO"}}
+        Ejemplo: recomienda musica rock
+        Salida: {{"command": "recomendacion", "gustos": "rock"}}
+        ----------------------------------------------------------------------------------------------
+        Si no se reconoce el comando, usa: {{"command": "desconocido"}}
+        """
+
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.GenerationConfig(
+                response_mime_type="application/json",
+            )
+        )
 
         resultado = json.loads(response.text)
         print(f"Respuesta de la IA: {resultado}")
@@ -96,21 +92,30 @@ def procesar_comando_con_ia(texto):
                 resultado["gustos"] = texto.split("como ")[-1] if "como " in texto else ""
 
         return resultado
-    except json.JSONDecodeError:
-        print("Error al decodificar JSON. Respuesta de la IA:", response.text)
+    except Exception as e:
+        print(f"Error al procesar con IA: {e}")
+        # Lógica de respaldo simple
+        if "recomienda" in texto.lower() or "recomiéndame" in texto.lower():
+            return {"command": "recomendacion", "gustos": texto.split("gusta")[-1].strip()}
+        elif "reproduce" in texto.lower():
+            partes = texto.lower().split("reproduce")[-1].split("de")
+            if len(partes) >= 2:
+                return {"command": "cancion", "nombre_cancion": partes[0].strip(), "nombre_artista": partes[1].strip()}
+        elif "qué canción" in texto.lower() or "que cancion" in texto.lower():
+            return {"command": "actualcancion"}
         return {"command": "desconocido"}
 
 # =============================
 # Función para ejecutar el comando procesado
 # =============================
 
-def ejecutar_comando(comando):
+def ejecutar_comando(comando, contexto_completo):
     if comando["command"] == "actualcancion":
         return cancion_actual()
     elif comando["command"] == "cancion":
         return reproducir_cancion(comando.get("nombre_cancion", ""), comando.get("nombre_artista", ""))
     elif comando["command"] == "recomendacion":
-        recomendacion = recomendar_musica(comando.get("gustos", ""))
+        recomendacion = recomendar_musica(comando.get("gustos", ""), contexto_completo)
         if "cancion_recomendada" in recomendacion:
             cancion = recomendacion["cancion_recomendada"]
             resultado_reproduccion = reproducir_cancion(cancion["nombre"], cancion["artista"])
@@ -135,7 +140,7 @@ if __name__ == "__main__":
         comando_procesado = procesar_comando_con_ia(entrada)
 
         # Ejecutar el comando y obtener la respuesta
-        respuesta = ejecutar_comando(comando_procesado)
+        respuesta = ejecutar_comando(comando_procesado, entrada)
         print(respuesta)  # Mostrar la respuesta al usuario
 
 
