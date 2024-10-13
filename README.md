@@ -20,8 +20,8 @@ Este proyecto es un asistente de voz que interactúa con Spotify, permitiendo co
 
 1. Clona este repositorio:
    ```
-   git clone https://github.com/tu-usuario/asistente-voz-spotify.git
-   cd asistente-voz-spotify
+   git clone https://github.com/Davidcrz14/asistente.git
+   cd asistente
    ```
 
 2. Instala las dependencias:
