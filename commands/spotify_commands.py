@@ -3,6 +3,8 @@ from spotipy.oauth2 import SpotifyOAuth
 import json
 import google.generativeai as genai
 import random
+import sqlite3
+from datetime import datetime
 
 # Configuración de Spotify (mantén esto igual)
 SPOTIPY_CLIENT_ID = '3ded45471ca6428ab7544c45ee48d87f'
@@ -20,6 +22,39 @@ genai.configure(api_key='AIzaSyD3D35igAJd-q-Eoi_ZFHKnJ8DCeYXdzmw')
 
 model = genai.GenerativeModel(model_name="gemini-1.5-pro")
 
+# Configuración de la base de datos
+DB_NAME = 'historial_canciones.db'
+
+def inicializar_db():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS historial_canciones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre_cancion TEXT,
+        artista TEXT,
+        fecha_reproduccion DATETIME
+    )
+    ''')
+    conn.commit()
+    conn.close()
+
+def registrar_cancion(nombre_cancion, artista):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('INSERT INTO historial_canciones (nombre_cancion, artista, fecha_reproduccion) VALUES (?, ?, ?)',
+                   (nombre_cancion, artista, datetime.now()))
+    conn.commit()
+    conn.close()
+
+def obtener_historial():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT nombre_cancion, artista FROM historial_canciones ORDER BY fecha_reproduccion DESC LIMIT 50')
+    historial = cursor.fetchall()
+    conn.close()
+    return historial
+
 def cancion_actual():
     current_track = sp.current_user_playing_track()
     if current_track is not None:
@@ -31,28 +66,37 @@ def cancion_actual():
     else:
         return json.dumps({"command": "actualcancion", "error": "No se está reproduciendo ninguna canción"})
 
-def reproducir_cancion(cancion, artista, uri=None):
+def reproducir_cancion(cancion, artista=None):
     try:
-        if uri:
-            sp.start_playback(uris=[uri])
+        if artista:
+            query = f"track:{cancion} artist:{artista}"
         else:
-            results = sp.search(q=f"track:{cancion} artist:{artista}", type="track", limit=1)
-            if results['tracks']['items']:
-                track_uri = results['tracks']['items'][0]['uri']
-                sp.start_playback(uris=[track_uri])
-            else:
-                return json.dumps({"command": "cancion", "error": "Canción no encontrada"})
+            query = f"track:{cancion}"
 
-        return json.dumps({
-            "command": "cancion",
-            "cancion": cancion,
-            "artista": artista,
-            "mensaje": "Reproduciendo la canción"
-        })
+        results = sp.search(q=query, type="track", limit=1)
+        if results['tracks']['items']:
+            track_uri = results['tracks']['items'][0]['uri']
+            sp.start_playback(uris=[track_uri])
+            cancion_reproducida = results['tracks']['items'][0]['name']
+            artista_reproducido = results['tracks']['items'][0]['artists'][0]['name']
+
+            # Registrar la canción en la base de datos
+            registrar_cancion(cancion_reproducida, artista_reproducido)
+
+            return json.dumps({
+                "command": "cancion",
+                "cancion": cancion_reproducida,
+                "artista": artista_reproducido,
+                "mensaje": f"Reproduciendo {cancion_reproducida} de {artista_reproducido}"
+            })
+        else:
+            return json.dumps({"command": "cancion", "error": "Canción no encontrada"})
     except spotipy.exceptions.SpotifyException as e:
         return json.dumps({"command": "cancion", "error": f"Error al reproducir: {str(e)}"})
 
 def recomendar_musica(gustos, contexto_completo):
+    if "historial" in gustos.lower():
+        return recomendar_basado_en_historial()
     try:
         # Buscar el artista
         artista_principal = gustos.split()[-1]  # Toma la última palabra como el artista principal
@@ -96,8 +140,7 @@ def recomendar_musica(gustos, contexto_completo):
             if cancion_recomendada:
                 resultado_reproduccion = reproducir_cancion(
                     cancion_recomendada['name'],
-                    cancion_recomendada['artists'][0]['name'],
-                    cancion_recomendada['uri']
+                    cancion_recomendada['artists'][0]['name']
                 )
                 return {
                     "command": "recomendacion",
@@ -142,8 +185,7 @@ def inspeccionar_playlists_y_recomendar():
         # Intentar reproducir la canción recomendada
         resultado_reproduccion = reproducir_cancion(
             cancion_recomendada['name'],
-            cancion_recomendada['artists'][0]['name'],
-            cancion_recomendada['uri']
+            cancion_recomendada['artists'][0]['name']
         )
 
         return {
@@ -160,3 +202,35 @@ def inspeccionar_playlists_y_recomendar():
     except Exception as e:
         print(f"Error en inspeccionar_playlists_y_recomendar: {e}")
         return {"command": "inspector", "error": f"Error al inspeccionar playlists: {str(e)}"}
+
+def recomendar_basado_en_historial():
+    historial = obtener_historial()
+    if not historial:
+        return json.dumps({"command": "recomendacion", "error": "No hay suficiente historial para recomendar"})
+
+    # Seleccionar una canción aleatoria del historial
+    cancion_base, artista_base = random.choice(historial)
+
+    # Buscar recomendaciones basadas en esta canción
+    try:
+        results = sp.recommendations(seed_tracks=[sp.search(q=f"track:{cancion_base} artist:{artista_base}", type="track", limit=1)['tracks']['items'][0]['id']], limit=1)
+        if results['tracks']:
+            cancion_recomendada = results['tracks'][0]
+            resultado_reproduccion = reproducir_cancion(cancion_recomendada['name'], cancion_recomendada['artists'][0]['name'])
+            return json.dumps({
+                "command": "recomendacion",
+                "cancion_base": cancion_base,
+                "artista_base": artista_base,
+                "cancion_recomendada": {
+                    "nombre": cancion_recomendada['name'],
+                    "artista": cancion_recomendada['artists'][0]['name']
+                },
+                "reproduccion": json.loads(resultado_reproduccion)
+            })
+        else:
+            return json.dumps({"command": "recomendacion", "error": "No se pudo generar una recomendación"})
+    except Exception as e:
+        return json.dumps({"command": "recomendacion", "error": f"Error al generar recomendación: {str(e)}"})
+
+# Inicializar la base de datos al importar el módulo
+inicializar_db()
